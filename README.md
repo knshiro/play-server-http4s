@@ -1,5 +1,7 @@
 # play-server-http4s
 
+[![Build Status](https://travis-ci.org/knshiro/play-server-http4s.svg)](https://travis-ci.org/knshiro/play-server-http4s)
+
 Experimental [http4s](http://http4s.org/) backend for [Play framework](https://www.playframework.com/).
 This is just a proof of concept for the moment and needs work.
 
