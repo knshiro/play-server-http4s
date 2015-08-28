@@ -152,11 +152,6 @@ class Http4sServer(
 
   override def stop() {
 
-    // First, close all opened sockets
-    server.foreach { s =>
-      s.shutdownNow()
-    }
-
     // Now shut the application down
     applicationProvider.current.foreach(Play.stop)
 
@@ -169,6 +164,11 @@ class Http4sServer(
     mode match {
       case Mode.Test =>
       case _ => logger.info("Stopping server...")
+    }
+
+    // First, close all opened sockets
+    server.foreach { s =>
+      s.shutdownNow()
     }
 
     // Call provided hook
@@ -187,6 +187,10 @@ object Http4sServer {
 
   private val logger = Logger(this.getClass)
 
+  /**
+   * A ServerProvider for creating an AkkaHttpServer.
+   */
+  implicit val provider = new Http4sServerProvider
 }
 
 /**

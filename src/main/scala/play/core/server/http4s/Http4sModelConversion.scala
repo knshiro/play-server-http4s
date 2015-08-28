@@ -11,6 +11,7 @@ import play.core.server.common.{ForwardedHeaderHandler, ServerRequestUtils, Serv
 import play.core.server.http4s.ScalazConversions._
 import scodec.bits.ByteVector
 
+import scala.concurrent.Future
 import scalaz.stream._
 import scalaz.concurrent.Task
 
@@ -46,7 +47,7 @@ private[server] class Http4sModelConversion(forwardedHeaderHandler: ForwardedHea
 
     new RequestHeader {
       override val id = requestId
-      override val tags = Map.empty[String, String]
+      override val tags = Map("HTTP_SERVER" -> "http4s")
       override def uri = request.uri.toString()
       override def path = request.uri.path
       override def method = request.method.name
@@ -77,7 +78,7 @@ private[server] class Http4sModelConversion(forwardedHeaderHandler: ForwardedHea
   }
 
   private def convertRequestBody(request: Request): Enumerator[Array[Byte]] = {
-     enumerator(request.body).map(_.toArray)
+    enumerator(request.body).map(_.toArray)
   }
 
 
@@ -98,10 +99,13 @@ private[server] class Http4sModelConversion(forwardedHeaderHandler: ForwardedHea
 
         val response = createHttp4sResponse(requestHeader, result, connectionHeader, httpVersion)
 
-        def streamEnum(response: Response, enum: Enumerator[Array[Byte]]): Task[Response] = {
+        def streamEnum(response: Response, enum: Enumerator[Array[Byte]], chunked: Boolean = true): Task[Response] = {
           val dataEnum: Enumerator[ByteVector] = enum.map(ByteVector(_)) >>> Enumerator.eof
           process(dataEnum) map { entityBody =>
-            response.copy(body = entityBody)
+            val r = response.copy(body = entityBody)
+            if (chunked) {
+              r.putHeaders(`Transfer-Encoding`(TransferCoding.chunked))
+            } else r
           }
         }
 
@@ -110,15 +114,16 @@ private[server] class Http4sModelConversion(forwardedHeaderHandler: ForwardedHea
             assert(connectionHeader.willClose)
             streamEnum(response, enum)
           case ServerResultUtils.StreamWithNoBody =>
-            Task(response)
+            Task.now(response)
           case ServerResultUtils.StreamWithKnownLength(enum) =>
-            streamEnum(response, enum)
+            streamEnum(response, enum, chunked = false)
           case ServerResultUtils.StreamWithStrictBody(body) =>
-            Task(response.copy(body = Process.eval(Task(ByteVector(body))) ))
+            Task.now(response.copy(body = Process.eval(Task.now(ByteVector(body)))))
           case ServerResultUtils.UseExistingTransferEncoding(enum) =>
             streamEnum(response, enum)
           case ServerResultUtils.PerformChunkedTransferEncoding(transferEncodedEnum) =>
-            streamEnum(response.putHeaders(`Transfer-Encoding`(TransferCoding.chunked)), transferEncodedEnum &> Results
+            streamEnum(response
+              .putHeaders(`Transfer-Encoding`(TransferCoding.chunked)), transferEncodedEnum &> Results
               .chunk)
         }
     }

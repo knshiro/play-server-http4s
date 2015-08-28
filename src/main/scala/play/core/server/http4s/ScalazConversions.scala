@@ -15,14 +15,14 @@ import scalaz.{-\/, NaturalTransformation, \/-}
  */
 object ScalazConversions {
 
-  def process[O](enum: Enumerator[O]): Task[Process[Task, O]] = {
-    import scala.concurrent.ExecutionContext.Implicits.global
-
-    val res =
-      scalaFuture2scalazTask(
-        enum |>>> Iteratee.fold(Process.empty[Task, O])((p, el) => p ++ Process.emit(el))
-      )
-    res
+  def process[O](enum: Enumerator[O])(implicit ctx: ExecutionContext): Task[Process[Task, O]] = {
+    // TODO: Check if this should be synchronous
+    Task {
+      val q = async.unboundedQueue[O]
+      (enum |>>> Iteratee.foreach (q.enqueueOne(_).run))
+        .onComplete { _ => q.close.run }
+      q.dequeue
+    }
   }
 
   // From https://github.com/mandubian/playzstream/blob/master/app/models/stream.scala
@@ -46,24 +46,25 @@ object ScalazConversions {
                 scalazTask2scalaFuture(req.attempt).flatMap { r =>
                   step(recv(EarlyCause.fromTaskResult(r)).run, curIt)
                 }
-                // TODO: figure out if there is anything left to do here
-//                .recoverWith{
-//                  case Process.End => step(fb, curIt) // Normal termination
-//                  case e: Exception => err match {
-//                    case Process.Halt(_) => throw e // ensure exception is eventually thrown;
-//                    // without this we'd infinite loop
-//                    case _ => step(err ++ Process.eval(Task.delay(throw e)), curIt)
-//                  }
-//                }
+              // TODO: figure out if there is anything left to do here
+              //                .recoverWith{
+              //                  case Process.End => step(fb, curIt) // Normal termination
+              //                  case e: Exception => err match {
+              //                    case Process.Halt(_) => throw e // ensure exception is eventually thrown;
+              //                    // without this we'd infinite loop
+              //                    case _ => step(err ++ Process.eval(Task.delay(throw e)), curIt)
+              //                  }
+              //                }
 
               case Process.Emit(h) =>
-                enumerateSeq(h, Cont(k)).flatMap{ i => step(Process.Halt(Cause.End), i)}
+                enumerateSeq(h, Cont(k)).flatMap { i => step(Process.Halt(Cause.End), i) }
 
               case Process.Append(h, stack) =>
                 step(h, curIt) flatMap { i =>
                   if (stack.isEmpty) step(Process.Halt(Cause.End), i)
                   else {
-                    step(Process.Append(stack.head(Cause.End).run.asInstanceOf[HaltEmitOrAwait[Task,O]], stack.tail),i)
+                    step(Process
+                      .Append(stack.head(Cause.End).run.asInstanceOf[HaltEmitOrAwait[Task, O]], stack.tail), i)
                   }
                 }
               case Process.Halt(_) =>
@@ -104,7 +105,7 @@ object ScalazConversions {
   }
 
   /* Future -> Task NaturalTransformation */
-  def Task2FutureNT(implicit ctx: ExecutionContext) = new NaturalTransformation[Future, Task]{
+  def Task2FutureNT(implicit ctx: ExecutionContext) = new NaturalTransformation[Future, Task] {
     def apply[A](fa: Future[A]): Task[A] = scalaFuture2scalazTask(fa)
   }
 
@@ -116,9 +117,6 @@ object ScalazConversions {
       })
     )
   }
-
-
-
 
 
 }
