@@ -2,11 +2,10 @@ package play.core.server.http4s
 
 import play.api.libs.iteratee._
 
+import scala.annotation.tailrec
 import scala.concurrent._
 import scala.util.{Failure, Success}
 import scalaz.concurrent.Task
-import scalaz.stream.Cause.EarlyCause
-import scalaz.stream.Process.HaltEmitOrAwait
 import scalaz.stream._
 import scalaz.{-\/, NaturalTransformation, \/-}
 
@@ -19,32 +18,52 @@ object ScalazConversions {
     // TODO: Check if this should be synchronous
     Task {
       val q = async.unboundedQueue[O]
-      (enum |>>> Iteratee.foreach (q.enqueueOne(_).run))
-        .onComplete { _ => q.close.run }
+      (enum |>>> Iteratee.foreach(q.enqueueOne(_).run))
+        .onComplete {
+          case Success(_) => q.close.run
+          case Failure(t) => q.fail(t).run
+        }
       q.dequeue
     }
   }
 
-  // From https://github.com/mandubian/playzstream/blob/master/app/models/stream.scala
 
-  /** Creates an enumerator from a Process[Task, O] */
+  val P = scalaz.stream.Process
+  val C = scalaz.stream.Cause
+
+  /**
+   * Helper to wrap evaluation of `p` that may cause side-effects by throwing exception.
+   * From https://github.com/scalaz/scalaz-stream/blob/master/src/main/scala/scalaz/stream/Util.scala
+   */
+  def Try[F[_], A](p: => Process[F, A]): Process[F, A] =
+    try p
+    catch {case e: Throwable => Process.fail(e)}
+
+
+  /** Creates an enumerator from a Process[Task, O]
+    * From https://github.com/mandubian/playzstream/blob/master/app/models/stream.scala
+    * Also inspired by
+    * https://github.com/http4s/http4s/blob/54fd3f7a08d525e7c4decb612b1ce229c6c6c4d0/blaze-core/src/main/scala/org/http4s/blaze/util/ProcessWriter.scala
+    * */
   def enumerator[O](p: Process[Task, O])(implicit ctx: ExecutionContext) = new Enumerator[O] {
 
-    val Trampoline = scalaz.Trampoline
+    private type StackElem = Cause => P.Trampoline[Process[Task, O]]
 
     def apply[A](it: Iteratee[O, A]): Future[Iteratee[O, A]] = {
 
-      def step[A](curP: Process[Task, O], curIt: Iteratee[O, A]): Future[Iteratee[O, A]] = {
+      def step[A](curP: Process[Task, O], curIt: Iteratee[O, A], stack: List[StackElem]): Future[Iteratee[O, A]] = {
+
         curIt.fold {
           case Step.Done(a, e) =>
             Future.successful(Done(a, e))
 
           case Step.Cont(k) =>
+
             curP match {
 
-              case Process.Await(req, recv) =>
+              case P.Await(req, recv) =>
                 scalazTask2scalaFuture(req.attempt).flatMap { r =>
-                  step(recv(EarlyCause.fromTaskResult(r)).run, curIt)
+                  step(Try(recv(C.EarlyCause.fromTaskResult(r)).run), curIt, stack)
                 }
               // TODO: figure out if there is anything left to do here
               //                .recoverWith{
@@ -56,19 +75,29 @@ object ScalazConversions {
               //                  }
               //                }
 
-              case Process.Emit(h) =>
-                enumerateSeq(h, Cont(k)).flatMap { i => step(Process.Halt(Cause.End), i) }
+              case P.Emit(h) =>
+                enumerateSeq(h, Cont(k)).flatMap { i => step(Process.Halt(Cause.End), i, stack) }
 
-              case Process.Append(h, stack) =>
-                step(h, curIt) flatMap { i =>
-                  if (stack.isEmpty) step(Process.Halt(Cause.End), i)
-                  else {
-                    step(Process
-                      .Append(stack.head(Cause.End).run.asInstanceOf[HaltEmitOrAwait[Task, O]], stack.tail), i)
-                  }
+              case P.Append(head, tail) =>
+                @tailrec // avoid as many intermediates as possible
+                def prepend(i: Int, stack: List[StackElem]): List[StackElem] = {
+                  if (i >= 0) prepend(i - 1, tail(i) :: stack)
+                  else stack
                 }
-              case Process.Halt(_) =>
+                step(head, curIt, prepend(tail.length - 1, stack))
+
+              case P.Halt(cause) if stack.nonEmpty =>
+                step(Try(stack.head(cause).run), curIt, stack.tail)
+
+              // Rest are terminal cases
+              case P.Halt(C.End) =>
                 Future.successful(k(Input.EOF))
+
+              case P.Halt(C.Kill) =>
+                Future.failed(new Exception("Stream killed before end"))
+
+              case P.Halt(C.Error(t)) =>
+                Future.failed(t)
             }
 
           case Step.Error(msg, e) =>
@@ -76,7 +105,7 @@ object ScalazConversions {
         }
       }
 
-      step(p, it)
+      step(p, it, List.empty)
     }
   }
 

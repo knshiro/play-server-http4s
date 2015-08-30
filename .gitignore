@@ -2,6 +2,7 @@
 workspace/.metadata/
 libs/
 lib/
+logs/
 # built application files
 *.apk
 *.ap_

@@ -2,13 +2,12 @@ package play.core.server.http4s
 
 import akka.util.Timeout
 import play.api.libs.EventSource
-import play.api.libs.iteratee.{Concurrent, Iteratee, Enumerator}
+import play.api.libs.iteratee.{Concurrent, Iteratee}
 import play.api.libs.ws._
 import play.api.mvc.BodyParsers.parse
 import play.api.mvc.Results._
 import play.api.mvc._
 import play.api.test._
-import play.core.server.NettyServer
 
 import scala.concurrent.Future
 
@@ -54,7 +53,7 @@ object Http4sServerSpec extends PlaySpecification with WsTestClient {
         case ("GET", "/hello") => Action(Ok("greetings"))
       } { response =>
         response.status must_== 200
-        response.header(CONTENT_TYPE) must_== Some("text/plain; charset=UTF-8")
+        response.header(CONTENT_TYPE) must_== Some("text/plain; charset=utf-8")
         response.header(CONTENT_LENGTH) must_== Some("9")
         response.header(TRANSFER_ENCODING) must_== None
         response.body must_== "greetings"
@@ -70,7 +69,7 @@ object Http4sServerSpec extends PlaySpecification with WsTestClient {
         }
       } { response =>
         response.status must_== 200
-        response.header(CONTENT_TYPE) must_== Some("text/plain; charset=UTF-8")
+        response.header(CONTENT_TYPE) must_== Some("text/plain; charset=utf-8")
         response.header(CONTENT_LENGTH) must_== Some("9")
         response.header(TRANSFER_ENCODING) must_== None
         response.body must_== "greetings"
