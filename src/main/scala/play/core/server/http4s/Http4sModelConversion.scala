@@ -159,7 +159,7 @@ private[server] class Http4sModelConversion(forwardedHeaderHandler: ForwardedHea
     val rawHeaders: Iterable[(String, String)] = ServerResultUtils.splitSetCookieHeaders(playHeaders)
 
     val convertedHeaders: List[Header] = rawHeaders.map {
-      case (name, value) => Header(name, value).parsed
+      case (name, value) => Header(name, value)
     }.toList
     Http4sHeaders(convertedHeaders)
   }
