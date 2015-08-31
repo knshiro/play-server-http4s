@@ -14,5 +14,11 @@ lazy val root = (project in file("."))
 
 resolvers += "Knshiro's repository" at "https://dl.bintray.com/knshiro/maven"
 
-libraryDependencies += "me.ugo" %% "play-server-http4s" % "0.0.2"
+libraryDependencies += "me.ugo" %% "play-server-http4s" % "0.0.3"
 ```
+
+## TODO
+
+- SSL
+- Websockets
+- Better enumerator to stream (and vice-versa) transformations.
