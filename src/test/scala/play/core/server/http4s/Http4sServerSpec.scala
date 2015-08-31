@@ -1,15 +1,19 @@
 package play.core.server.http4s
 
+import java.io.{InputStream, ByteArrayInputStream}
+
 import akka.util.Timeout
+import com.ning.http.client.AsyncHttpClient
 import play.api.libs.EventSource
-import play.api.libs.iteratee.{Concurrent, Iteratee}
+import play.api.libs.iteratee.{Enumeratee, Enumerator, Concurrent, Iteratee}
 import play.api.libs.ws._
+import play.api.libs.ws.ning.{NingWSResponse, NingWSClientConfig, NingWSClient}
 import play.api.mvc.BodyParsers.parse
 import play.api.mvc.Results._
 import play.api.mvc._
 import play.api.test._
 
-import scala.concurrent.Future
+import scala.concurrent.{Promise, Future}
 
 /**
  * Created by Ugo Bataillard on 8/28/15.
@@ -205,9 +209,59 @@ object Http4sServerSpec extends PlaySpecification with WsTestClient {
 
         val (responseHeaders, stream) = await(responseFuture)
 
-        println("Headers: " + responseHeaders)
         val res = await(stream.map { bs => Seq(new String(bs)) } |>>> Iteratee.consume[Seq[String]]())
         res must_== list.map("data: " + _ + "\n\n")
+      }
+
+    }
+
+    "Handle streamed bodies" in {
+
+      val routes: PartialFunction[(String, String), Handler]  = {
+        case ("POST", "/") => Action { request =>
+          Ok(request.body.asRaw.get.size.toString)
+        }
+      }
+
+      running(TestServer(testServerPort, FakeApplication(withRoutes = routes), serverProvider = Some(Http4sServer.provider))) {
+
+        val bodySize = 10000000L
+
+        val is = new InputStream {
+          var count = 0L
+
+          override def read(): Port = {
+            count += 1
+            if(count <= bodySize) 1 else -1
+          }
+        }
+
+        val client = new AsyncHttpClient
+        val request = client.preparePost("http://localhost:"+testServerPort+"/").setBody(is).build()
+
+
+        import com.ning.http.client.{ Request => AHCRequest, Response => AHCResponse}
+        def execute(request: AHCRequest): Future[NingWSResponse] = {
+
+          import com.ning.http.client.AsyncCompletionHandler
+          val result = Promise[NingWSResponse]()
+
+          client.executeRequest(request, new AsyncCompletionHandler[AHCResponse]() {
+            override def onCompleted(response: AHCResponse) = {
+              result.success(NingWSResponse(response))
+              response
+            }
+
+            override def onThrowable(t: Throwable) = {
+              result.failure(t)
+            }
+          })
+          result.future
+        }
+
+        val res = await(execute(request))
+
+        res.body must_== bodySize.toString
       }
 
     }
