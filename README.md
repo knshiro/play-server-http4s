@@ -21,7 +21,7 @@ libraryDependencies += "me.ugo" %% "play-server-http4s" % "0.0.4"
 
 Middlewares can inject values in requests by the mean of Request.tags. It's
 limited to `String` right now due to Play `Request` model.
-Example:
+Example using `Referrals` middleware from https://github.com/knshiro/http4s-middlewares:
 ```
 import play.api._
 import play.api.mvc._
