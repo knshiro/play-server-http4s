@@ -4,6 +4,8 @@ organization := "me.ugo"
 
 scalaVersion := "2.11.7"
 
+scalacOptions ++= Seq("-feature","-unchecked")
+
 resolvers += "Typesafe Releases" at "https://repo.typesafe.com/typesafe/releases/"
 resolvers += Resolver
   .url("Typesafe Ivy Snapshots Repository", url("https://repo.typesafe.com/typesafe/ivy-snapshots"))(Resolver

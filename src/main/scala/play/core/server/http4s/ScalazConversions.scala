@@ -8,6 +8,7 @@ import scala.util.{Failure, Success}
 import scalaz.concurrent.Task
 import scalaz.stream._
 import scalaz.{-\/, NaturalTransformation, \/-}
+import scala.language.higherKinds
 
 /**
  * Created by Ugo Bataillard on 8/25/15.
@@ -27,10 +28,6 @@ object ScalazConversions {
     }
   }
 
-
-  val P = scalaz.stream.Process
-  val C = scalaz.stream.Cause
-
   /**
    * Helper to wrap evaluation of `p` that may cause side-effects by throwing exception.
    * From https://github.com/scalaz/scalaz-stream/blob/master/src/main/scala/scalaz/stream/Util.scala
@@ -47,11 +44,11 @@ object ScalazConversions {
     * */
   def enumerator[O](p: Process[Task, O])(implicit ctx: ExecutionContext) = new Enumerator[O] {
 
-    private type StackElem = Cause => P.Trampoline[Process[Task, O]]
+    private type StackElem = Cause => Process.Trampoline[Process[Task, O]]
 
     def apply[A](it: Iteratee[O, A]): Future[Iteratee[O, A]] = {
 
-      def step[A](curP: Process[Task, O], curIt: Iteratee[O, A], stack: List[StackElem]): Future[Iteratee[O, A]] = {
+      def step(curP: Process[Task, O], curIt: Iteratee[O, A], stack: List[StackElem]): Future[Iteratee[O, A]] = {
 
         curIt.fold {
           case Step.Done(a, e) =>
@@ -61,9 +58,9 @@ object ScalazConversions {
 
             curP match {
 
-              case P.Await(req, recv) =>
+              case Process.Await(req, recv) =>
                 scalazTask2scalaFuture(req.attempt).flatMap { r =>
-                  step(Try(recv(C.EarlyCause.fromTaskResult(r)).run), curIt, stack)
+                  step(Try(recv(Cause.EarlyCause.fromTaskResult(r)).run), curIt, stack)
                 }
               // TODO: figure out if there is anything left to do here
               //                .recoverWith{
@@ -75,10 +72,10 @@ object ScalazConversions {
               //                  }
               //                }
 
-              case P.Emit(h) =>
+              case Process.Emit(h) =>
                 enumerateSeq(h, Cont(k)).flatMap { i => step(Process.Halt(Cause.End), i, stack) }
 
-              case P.Append(head, tail) =>
+              case Process.Append(head, tail) =>
                 @tailrec // avoid as many intermediates as possible
                 def prepend(i: Int, stack: List[StackElem]): List[StackElem] = {
                   if (i >= 0) prepend(i - 1, tail(i) :: stack)
@@ -86,17 +83,17 @@ object ScalazConversions {
                 }
                 step(head, curIt, prepend(tail.length - 1, stack))
 
-              case P.Halt(cause) if stack.nonEmpty =>
+              case Process.Halt(cause) if stack.nonEmpty =>
                 step(Try(stack.head(cause).run), curIt, stack.tail)
 
               // Rest are terminal cases
-              case P.Halt(C.End) =>
+              case Process.Halt(Cause.End) =>
                 Future.successful(k(Input.EOF))
 
-              case P.Halt(C.Kill) =>
+              case Process.Halt(Cause.Kill) =>
                 Future.failed(new Exception("Stream killed before end"))
 
-              case P.Halt(C.Error(t)) =>
+              case Process.Halt(Cause.Error(t)) =>
                 Future.failed(t)
             }
 
