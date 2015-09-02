@@ -47,7 +47,7 @@ private[server] class Http4sModelConversion(forwardedHeaderHandler: ForwardedHea
 
     new RequestHeader {
       override val id = requestId
-      override val tags = Map("HTTP_SERVER" -> "http4s")
+      override val tags = getTags(request) + ("HTTP_SERVER" -> "http4s")
       override def uri = request.uri.toString()
       override def path = request.uri.path
       override def method = request.method.name
@@ -75,6 +75,17 @@ private[server] class Http4sModelConversion(forwardedHeaderHandler: ForwardedHea
   private def getHeaders(request: Request): PlayHeaders = {
     val pairs = request.headers.toList.map(h => h.name.value -> h.value)
     new PlayHeaders(pairs)
+  }
+
+  private def getTags(request:Request): Map[String,String] = {
+    request.attributes.keys.foldLeft(Map.empty[String,String]) { (acc,key) =>
+      val value = request.attributes.get(key)
+      acc ++ (value map {
+        case v:Iterable[_] => key.toString() -> v.mkString(",")
+        case v =>  key.toString() -> v.toString
+      })
+
+    }
   }
 
   private def convertRequestBody(request: Request): Enumerator[Array[Byte]] = {
