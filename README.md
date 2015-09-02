@@ -14,7 +14,29 @@ lazy val root = (project in file("."))
 
 resolvers += "Knshiro's repository" at "https://dl.bintray.com/knshiro/maven"
 
-libraryDependencies += "me.ugo" %% "play-server-http4s" % "0.0.3"
+libraryDependencies += "me.ugo" %% "play-server-http4s" % "0.0.4"
+```
+
+## Injected values
+
+Middlewares can inject values in requests by the mean of Request.tags. It's
+limited to `String` right now due to Play `Request` model.
+Example:
+```
+import play.api._
+import play.api.mvc._
+import me.ugo.http4s.middleware.Referrals
+
+class Application @Inject() (implicit ec: ExecutionContext) extends Controller {
+
+  def getReferralTag = Action { request =>
+    val referringSearchEngine = request.get(Referrals.referringSearchEngine.name).getOrElse("No referring search engine")    
+    val referringSearchTerms = request.get(Referrals.referringSearchEngine.name).map(_.split(",")).getOrElse("No referring search engine")    
+    Ok(referringSearchEngine + ":\n" + referringSearchTerms.mkString("\n"))
+  }
+
+}
+
 ```
 
 ## TODO
