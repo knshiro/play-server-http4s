@@ -8,14 +8,14 @@ import scala.concurrent.{Future, Await}
 import scala.concurrent.duration._
 import scalaz.concurrent.Task
 import scalaz.stream.Cause.Kill
+import scala.concurrent.ExecutionContext.Implicits.global
+import scalaz.stream._
 
 /**
  * Created by Ugo Bataillard on 8/30/15.
  */
 class ScalazConversionsSpec extends Specification {
 
-  import ScalazConversions._
-  import scala.concurrent.ExecutionContext.Implicits.global
 
   "ScalazConversions.process" should {
     "convert a simple Enumerator to a Process" in {
@@ -47,14 +47,14 @@ class ScalazConversionsSpec extends Specification {
   "ScalazConversions.enumerator" should {
     "convert an Emit Process to an Enumerator" in {
       val inputs = (1 to 100).toList
-      val outputs = Await.result(enumerator(P.emitAll(inputs)) |>>> Iteratee.fold(List.empty[Int])((total,elt) => elt :: total), 10.seconds)
+      val outputs = Await.result(enumerator(Process.emitAll(inputs)) |>>> Iteratee.fold(List.empty[Int])((total,elt) => elt :: total), 10.seconds)
       outputs must containTheSameElementsAs (inputs)
     }
 
     "convert an Eval Process to an Enumerator" in {
       val inputs = List.fill(100)(10)
 
-      val proc = P.repeatEval(Task.now(10)).take(100)
+      val proc = Process.repeatEval(Task.now(10)).take(100)
 
       val outputs = Await.result(enumerator(proc) |>>> Iteratee.fold(List.empty[Int])((total,elt) => elt :: total), 10.seconds)
       outputs must containTheSameElementsAs (inputs)
@@ -63,14 +63,14 @@ class ScalazConversionsSpec extends Specification {
     "convert an Append Process to an Enumerator" in {
       val inputs = List.fill(300)(10)
 
-      val proc = P.repeatEval(Task.now(10)).take(100) ++ P.emitAll(List.fill(100)(10)) ++ P.repeatEval(Task.now(10)).take(100)
+      val proc = Process.repeatEval(Task.now(10)).take(100) ++ Process.emitAll(List.fill(100)(10)) ++ Process.repeatEval(Task.now(10)).take(100)
 
       val outputs = Await.result(enumerator(proc) |>>> Iteratee.fold(List.empty[Int])((total,elt) => elt :: total), 10.seconds)
       outputs must containTheSameElementsAs (inputs)
     }
 
     "bubble up exceptions" in {
-      val proc = P.repeatEval(Task.now(10)).take(100) ++ P.fail(new Exception("aha")) ++ P.repeatEval(Task.now(10)).take(100)
+      val proc = Process.repeatEval(Task.now(10)).take(100) ++ Process.fail(new Exception("aha")) ++ Process.repeatEval(Task.now(10)).take(100)
 
       val futureResult = enumerator(proc) |>>> Iteratee.fold(List.empty[Int])((total,elt) => elt :: total)
 
@@ -82,7 +82,7 @@ class ScalazConversionsSpec extends Specification {
 
     // NEED TO BE VERIFIED
     "bubble up kill as an exception" in {
-      val proc = P.repeatEval(Task.now(10)).take(100) ++ P.Halt(Kill) ++ P.repeatEval(Task.now(10)).take(100)
+      val proc = Process.repeatEval(Task.now(10)).take(100) ++ Process.Halt(Kill) ++ Process.repeatEval(Task.now(10)).take(100)
 
       val futureResult = enumerator(proc) |>>> Iteratee.fold(List.empty[Int])((total,elt) => elt :: total)
 
