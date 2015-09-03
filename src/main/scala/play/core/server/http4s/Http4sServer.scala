@@ -1,25 +1,26 @@
 package play.core.server.http4s
 
-import ScalazConversions._
-
-import java.net.{InetAddress, InetSocketAddress}
+import java.io.File
+import java.net.InetSocketAddress
 
 import org.http4s.server.blaze.BlazeBuilder
-import org.http4s.server.{ServerBuilder, Service, HttpService}
-import org.http4s.{Response, Request}
+import org.http4s.server.{HttpService, ServerBuilder, Service}
+import org.http4s.{Request, Response}
 import play.api._
 import play.api.http.DefaultHttpErrorHandler
-import play.api.libs.iteratee.{Enumerator, Iteratee, Done, Input}
-import play.api.mvc.{Result, EssentialAction, Handler, RequestHeader}
+import play.api.inject.guice.GuiceApplicationBuilder
+import play.api.inject._
+import play.api.libs.iteratee.{Done, Enumerator, Input, Iteratee}
+import play.api.mvc.{EssentialAction, Handler, RequestHeader, Result}
 import play.core.ApplicationProvider
-import play.core.server.common.{ServerResultUtils, ForwardedHeaderHandler}
+import play.core.server.common.{ForwardedHeaderHandler, ServerResultUtils}
+import play.core.server.http4s.ScalazConversions._
 import play.core.server.{Server => PlayServer, _}
 
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
-import scala.util.{Success, Failure, Try}
 import scala.util.control.NonFatal
-import scalaz.{-\/, \/-}
+import scala.util.{Failure, Success, Try}
 import scalaz.concurrent.Task
 
 /**
@@ -28,15 +29,19 @@ import scalaz.concurrent.Task
 class Http4sServer(
   config: ServerConfig,
   val applicationProvider: ApplicationProvider,
-  stopHook: () => Future[Unit])
+  stopHook: () => Future[Unit],
+  builder: ServerBuilder,
+  middleware: Seq[HttpService => HttpService])
   extends PlayServer {
 
   import Http4sServer._
 
   def mode = config.mode
 
-  val builder: ServerBuilder = BlazeBuilder
-  val httpService: HttpService = Service.lift[Request,Response](handleRequest)
+  val coreService = Service.lift[Request,Response](handleRequest)
+  val httpService: HttpService = middleware.foldLeft(coreService){ (acc, el) =>
+    el(acc)
+  }
 
   val server = config.port.map { port =>
     builder.bindHttp(port)
@@ -194,9 +199,15 @@ object Http4sServer {
 }
 
 /**
- * Knows how to create an AkkaHttpServer.
+ * Knows how to create an Http4sServer.
  */
-class Http4sServerProvider extends ServerProvider {
+class Http4sServerProvider(
+  builder: ServerBuilder,
+  middleware: Seq[HttpService => HttpService]) extends ServerProvider {
+
+  def this(middleware: Seq[HttpService => HttpService]) = this(BlazeBuilder, middleware)
+  def this() = this(Seq.empty)
+
   def createServer(context: ServerProvider.Context) =
-    new Http4sServer(context.config, context.appProvider, context.stopHook)
+    new Http4sServer(context.config, context.appProvider, context.stopHook, builder, middleware)
 }
