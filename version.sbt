@@ -1,3 +1,3 @@
 enablePlugins(GitVersioning)
 
-git.baseVersion := "0.0.5"
+git.baseVersion := "0.0.6"

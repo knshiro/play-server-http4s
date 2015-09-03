@@ -14,7 +14,7 @@ lazy val root = (project in file("."))
 
 resolvers += "Knshiro's repository" at "https://dl.bintray.com/knshiro/maven"
 
-libraryDependencies += "me.ugo" %% "play-server-http4s" % "0.0.4"
+libraryDependencies += "me.ugo" %% "play-server-http4s" % "0.0.5"
 ```
 
 ## Add Middleware
